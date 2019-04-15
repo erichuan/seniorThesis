@@ -1,0 +1,565 @@
+---
+title: "Room Selection at Carnegie Mellon University"
+author: "Eric Huang"
+date: "3/11/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(reshape2)
+library(naniar)
+library(gridExtra)
+library(plyr)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Survey Data Analysis
+surveyResults <- read.csv("~/Desktop/roomselection/rsSurvey18.csv")
+surveyResults <- surveyResults[,-c(14,15)]
+
+surveyResults.copy <- surveyResults
+
+surveyResults.copy <- surveyResults.copy %>%
+  mutate(RoomSelection = ifelse(RoomSelection == "No",0,1))
+
+colnames(surveyResults.copy)[3] = "Simplicity"
+colnames(surveyResults.copy)[4] = "Fairness"
+colnames(surveyResults.copy)[5] = "Stressfulness"
+colnames(surveyResults.copy)[6] = "Satisfaction*" # satisfaction with the choices and 
+                                                  # desirability of one's final
+                                                  # assignment 
+colnames(surveyResults.copy)[8] = "Phase"
+colnames(surveyResults.copy)[12] = "blockSatisfaction"
+colnames(surveyResults.copy)[13] = "blockAsPrioritySelection"
+
+surveyResults.copy <- mutate(surveyResults.copy,
+                             Phase = fct_recode(Phase,
+                                  "Block" = "Block Housing",
+                                  "General" = "General Room Selection/Extended Selection",
+                                  "Open" = "Open Assignments",
+                                  "Retention" = "Retention/Pull-In"))
+surveyResults.copy <- mutate(surveyResults.copy, Phase = fct_lump(Phase, n = 4))
+surveyResults.copy <- replace_with_na(surveyResults.copy, replace = list(Phase = "Other"))
+surveyResults.copy <- surveyResults.copy[complete.cases(surveyResults.copy[ , 8]),]
+
+surveyResults.copy <- replace_with_na(surveyResults.copy, replace = list(Phase = "Senior"))
+surveyResults.copy <- surveyResults.copy[complete.cases(surveyResults.copy[ , 1]),]
+
+surveyResults.copy <- replace_with_na(surveyResults.copy, 
+                                      replace = list(blockAsPrioritySelection = ""))
+
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+Year_ordered <- ordered(surveyResults.copy$Year, levels = c("First-Year", "Sophomore", "Junior", "Senior"))
+
+Phase_ordered <- ordered(surveyResults.copy$Phase, levels = c("Retention", "Block", "General", "Open"))
+```
+
+## Abstract
+
+The Room Selection process at Carnegie Mellon University is the process where nearly 3600 undergraduates are eligible to select their on campus housing for the following academic year. The process, run by university Housing Services, consists of four main phases: Retention, Block Housing, General Selection, Open Assignments where the ultimate goal is to assign the approximately 2100 beds of different room types and buildings to students. Housing Services prides itself with a 4-year housing guarantee for those who stay on campus housing and so the assignment process is of importance for the satisfaction and retention of students. With each of the phases playing different roles as part of Housing's efforts to diversify the options for students, there are often questions like 'can I keep my room as an upperclass student?', 'what's the best way I can get a single?', 'how can I live with my friends?' and etc... And I offer a disposition at various aspects of the process and parse out trends, preferences, and strategies that either Housing Services or students can pursue. Due to the limited scope of my research, I hone in on the retention phase and present different variations to the phase and how it affects the process in terms of fairness, efficiency, and individual rationality.
+
+## Introduction
+
+An important aspect of a college or university is housing and residence life. Over the past couple of years there have been a rise in college enrollment and, understandably so, increases in on-campus housing. In fact, according to data from National Center for Education Statistics, there had been an increase in about 5.2% in the number of beds to a roughly 3 million beds. Hence, one can see more institutions making investments into residence halls and residence-related programs in exploring ways to attract and retain students, and especially with research linking retention in on-campus housing to retention in school (Ong, Petrova and Spieler, 2013). One part of the student housing experience is the room assignment process – where students have the important decisions to make regarding where and with whom to live on-campus - for a good living experience is also a contributor to the well-being of a student. From the standpoint of the University, it is also a balancing act between satisfying the preferences of its students and assigning rooms/roommates under many considerations such as efficiency or fairness. And this is where economics and the studies of market design comes in. What is the fairest way (if there is any, *fair* way to begin with?) to allocate preferences? How to ensure retention? Use a lottery or something else? And even from the students’ perspectives, what strategies to use?
+
+## Existing Literature
+
+There have been some research in these types of room assignment questions in the field of market design. This field of market design primarily arose in such markets where there's a lack of monetary means involved. Before many of the algorithms came out, these markets functioned through decentralized and often informal means. While decentralized markets provide more freedom (and sometimes may also be cheaper in the short-run with the lack of any regulatory measures), the lack of a central mechanism often resulted in inefficiencies, lack of coverage in certain markets, fairness and other concerns. One of the earlier literature in market design can be attributed to David Gale and Lloyd Shapley's college admissions and marriage market problem in 1962. Further research of similar algorithms have been in the kidney market, where variants of the deferred acceptance model has been used to match kidney patients and respective donors. Further applications include school choice, military drafts, rationing, as well as the allocation of the college dormitory assignments.    
+
+To put things into perspective, there are two buckets for these types of housing/assignment problems - the housing market and house allocation problems (well, less of types but more of special cases of the broader assignment problem). It is a housing market problem when all the participants are existing tenants (have at least an endowment) and therefore are looking for a way to 'trade' (or sell) among one another while a house allocation problem is precisely the opposite where none are existing tenants (all are newcomers without any endowments). In this case, these (scarce and indivisible) goods in question are usually collectively owned or controlled by some central planner (i.e. seats to schools in the school choice problem and dormitories/beds in the housing problem) and the question is of allocating these goods to the participants - how to allocate them fairly, efficiently, or whatever way that is satisfactory for individuals and the group.  
+
+With that, come various definitions used to evaluate algorithms. For instance, in the case of the housing market, there is the concept of individual rationality. For an assignment to be individually rational is for participants not to be made worse off than what they had with their existing assignments. And in broader terms, individual rationality is for participants not to be made worse off than their so-called 'baselines', usually the state of being unassigned. It is an important assumption per se that I make in terms of individual rationality - that people prefer being assigned over being unassigned. The Top Trading Cycles (TTC) (Shapley and Scarf, 1974) shows a mechanism that satisfies this criteria of individual rationality in addition to TTC being a fairly robust and optimal solution in various cases.  
+
+Some other definitions include (pareto) efficiency, fairness/equity, and strategy proofness as considerations for an algorithm. For an algorithm to be (pareto) efficient is such that there be no other possible matching that would make some weakly better off and at least one strictly better off while making others worse off. There are technically a further definitions where there's ex post and ex ante efficiency. For the purposes of my paper, ex post efficiency will be sufficient as it primarily concerns with the sustainability of the final assignments produced by a given mechanism. Certain probabilistic and randomized mechanisms will give us ex ante efficient outcomes, as seen through probabilistic serial mechanisms otherwise known as 'eating' mechanisms where participants 'eat' through probability shares of top preferences over given time intervals (Budish, Che, Kojima and Milgrom, 2013) (Hylland and Zeckhauser, 1979) (Bogomolnaia and Moulin, 2001). For an algorithm to be strategy proof is that participants are better off reporting their honest preferences - that misrepresentation or lying should not make one better off - or in game theoretic terms, truthtelling is a dominant strategy.    
+
+In terms of fairness, there are various different perspectives and definitions to consider. For instance, on first thought one might consider 'fairness' to be of even distribution, each person getting the same share of the pie. That definition would hold if we say that all assignments are final and that there'll be no trades. However, one can't guarantee that there won't be any underground trades. And once underground trades occur, the assignment won't be 'fair' anymore, otherwise they wouldn't have had the incentive to trade. This brings the idea that fairness is based on the preferences of those in the process and that the process would be 'fair' if no one *prefers* what someone else got more highly than what they currently have. Sounds a lot like (pareto) efficiency, right? And so one way to define fairness would be to restrict to looking at allocations that are stable with respect to potential for trade; in other words, restrict to pareto efficient allocations (Varian, 1973).  
+
+There are also other perspectives on fairness that I won't be going in depth but a notable perspective is the idea of *justice*. More commonly justice is viewed in a legal sense, but in allocation/organizational terms it can be broken down into procedural, distributive justice. Put it simply, the perception/reality of how the algorithm of the process is favorable or not to participants (procedural justice) or that if there's an ordering that whoever goes earlier (i.e. priority treatment) is based on 'acceptable' characteristics rather than particular biases (distributive justice). Of course it may not be possible to satisfy everyone, but the point being distribution something to take into consideration. For instance, our case of Room Selection, broadly speaking one can say the four phases are an ordering mechanism where existing tenants are prioritized, followed by larger groups of individuals (block housing), followed by the general population. However, looking at the phases individually, say block housing or general selection, there are also different orderings for participants in those phases. In the case of block housing, it is a randomly-generated lottery of all the blocks that decides the ordering of the blocks. Doesn't matter if it's a block of all juniors or a block of all first-years, ordering is random. Random lottery is generally a fair system and is perceived like so. On the other hand, while general selection also has aspects of random lottery, it is only random within each class year. Between class years, the priority is based on seniority (juniors first, then sophomores, first-years). Over the years students have generally been receptive to it. Such priority by seniority has also shaped the process and some possible strategies by promoting upperclass retention and the existence of 'legacy' houses as well as potentially discouraging some underclass whose top choices are those 'legacy' or retained houses and think don't have chance of getting them. However, more recently as Room Selection participants become more underclass-heavy, there have been talk of potentially reversing the seniority order. It's an area that I don't really go into but is worthy of future research.  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+byClass <- read.csv("~/Desktop/roomselection/rsParticipationByClass.csv")
+byClass <- byClass[1:5,]
+
+byClass$participation2016 <- byClass$participated2016 / byClass$eligible2016
+byClass$participation2017 <- byClass$participated2017 / byClass$eligible2017
+byClass$totalParticipation <- byClass$participated2016 + byClass$participated2017
+
+colnames(byClass) <- c("Year", "eligible2016", "participated2016", 
+                       "eligible2017", "participated2017", "participation2016",
+                       "participation2017", "totalParticipation")
+
+newByClass <- reshape2::melt(byClass, value.name = "classParticipationRS", 
+                             varnames = c("Class", "participation"))
+
+classParticipationCount <- newByClass[c(6:9,16:19),]
+totalClassParticipationCount <- newByClass[c(31:34),]
+
+Class_ordered <- ordered(classParticipationCount$Year,levels = c("First-Year", "Sophomore", "Junior", "Senior"))
+Class_ordered1 <- ordered(totalClassParticipationCount$Year,levels = c("First-Year", "Sophomore", "Junior", "Senior"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(classParticipationCount,aes(x = variable, y = classParticipationRS)) +
+                  geom_bar(aes(fill = Class_ordered), stat = "identity", 
+                           position = "dodge") +
+                  labs(title = "Room Selection Participation by class for 2016 and 2017",
+                        x = "Year", y = "Count",
+                       fill = "Class")
+
+ggplot(totalClassParticipationCount,aes(x = variable, y = classParticipationRS)) +
+                  geom_bar(aes(fill = Class_ordered1), stat = "identity", 
+                           position = "fill") +
+                  labs(title = "Room Selection Participation by class by proportion \nto total participants for 2016 and 2017",
+                       x = "Year", y = "Proportion",
+                       fill = "Class")
+```
+
+Following Gale and Shapley in 1962 have been several other research in room (house) assignments such as Gale’s Top Trading Cycles (TTC) (Shapley and Scarf, 1974), which was basically a special case of a discussion on cores (Shapley and Scarf, 1974), and also *You Request My House-I Get Your Turn* (YRMH-IGYT) algorithm (Abdulkadiroglu and Sonmez, 1999), building off of the existing tenants model.  
+
+What I am looking at is Carnegie Mellon's room assignment (Room Selection) process  University and how its mechanism fits with the literature as well as examining preferences and strategies of students. One of the main extracurriculars I’ve been involved in has been with Housing and residence life and so digging deeper into the mechanics of the Room Selection process through an economics lenses is a perfect marriage for my interests academic and extracurricular interests.  
+
+## Background
+
+Room Selection at Carnegie Mellon is multifaceted (and some might even say, complicated) process (2018 Room Selection Exit Survey Results). As such, Housing Services starts educating students about the process and have students start thinking about where they want to live around December of the fall semester. The current system having been in place for about twelve years, thus Housing has established a set approach every year for Room Selection, for instance hiring and training students as paid Room Selection Assistants (RSAs) who essentially become "experts" in the process.  
+
+The Room Selection process that I am looking at it is the process for upperclass (current) students – rising sophomores, rising juniors, rising seniors, and any fifth year undergraduates as well as respective residential staff of Resident Assistants (RAs) and Community Advisors (CAs).[^1] There is a separate process for incoming first-years that happens over the summer with a slight different process. All current on-campus students who are the above (rising sophomores, juniors, seniors, and select fifth years) are eligible to participate in the process. Carnegie Mellon Housing prides itself with the four-year housing guarantee that it has for students as long as they stay in on-campus housing the entire time. It is an important point as it signifies that capacity is not a problem on the macro-level but rather it is the allocation (assignment) of room and housing (building) types that is of interest.  
+
+[^1]: The Room Selection process contains the four main phases as described: Retention, Block Housing, General Selection, Open Assignment. Technically, the process also includes residential student staff of RA and CAs. However, they are simply 'assigned' to designated staff rooms right before the process starts. As such, for simplicity of the data collection and analysis, I omit the staff assignments. There are about 120 total staff members out of about 3500 total residents in university housing (about 1500 upperclass residents that are relevant for Room Selection) and thus should not be of significant effect on the subsequent analyses.
+
+The process consists of four major phases: Retention/Pull-ins, Block Housing, General Selection, and Open Assignment. (Open Assignment mainly serves to capture potential swaps, cancellations, waitlists) I include it in the data as I hypothesize it may be able to give insight into participants' satisfaction as the cancellations/swaps/assignments made there provide insight about the previous phases. Embedded in the General Selection is a subphase called 'Extended Selection', which is essentially just the loosening of a particular rule from General Selection. The phases go in the order they are listed, and students can only participate in one phase. For instance, existing tenants have the initial choice of keeping their current assignments (and the process is set for them) or give up their current choice and be part of the applicant pool (with a chance that they might get something worse off than their current assignment). Once existing tenants have made their decisions, the rest of the applicants choose among the rest of the phases - each of which with slight different rules and possible strategies - and assignments filled based on preferences and some sort of order determined by both class year and randomly. This process resembles a type of random serial dictatorship with squatting rights that is not individually rational - a similar type that many other universities use (Chen and Sonmez 2002).  
+
+As such, existing tenants have to decide whether to give up their stay with their current assignments (retention phase) or take the gamble for something better. On the flip side, it is also because of this retention phase that those in their first choices and/or one of the more of *desired* (popular) houses often form “legacies” where they retain as well as pass on (through pull-ins) their assignments to others. And it introduces the question of balancing the interests of the existing tenants and the interests of newcomers, the interests of individual rationality and fairness, respectively. And it can be shown this 'tension' between the two where when asked to rate their perception of the fairness of the process, a higher proportion of students who retained rated higher than those who hadn't (those that participated in other phases) in the exit survey at the end of last year's Room Selection. And later on I also look further into the significance of the retention phase in a model without that phase.  
+
+The next phase, a novel phase of CMU's Room Selection, is Block Housing. In this phase, groups of 6-12 students form a “block” of rooms at a time. The number of people participating in block housing have increased over the years, becoming almost as numerous as that of General Selection in the next phase – phase where individuals and/or smaller groups rank their preferences and are assigned by random order based on class standing (seniority first). Each phase presents itself with certain (dis)advantages, block housing for instance, being an earlier phase, have more available choices to choose from but downsides of the need to combine preferences with other people. But looking more closely, block housing is merely just random serial dictatorship with each 'block' (group of people) serving as a single entity. Since during the actual selection, the order of selection is by seniority and then randomly within each class year while General Selection is random serial dictatorship but for individuals. One person from the group - after having discussed with the rest of the group members - will be present at their selected timeslot and make their selections. As a result, what is more interesting is the motives and potential effects behind block housing for the subsequent phases since block housing takes up a considerable amount of rooms. From Room Selection participation and the exit survey data, I find that block housing can be said to be used as a form of a 'priority' selector. Originally intended for Housing to try to fill certain apartment spaces that might not be the most desired ones as well as for groups of friends (often first-years and their floormates) to continue to live together, block housing has become a way for students to get to choose their rooms earlier in the process. And this phenomenon tells us about students' perception of and confidence in the other phases and thus affect the assignments of the other phases.  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# satisfaction with Block Assignment
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$blockSatisfaction),
+                                      na.rm = TRUE) + 
+  geom_bar() +
+  labs(title = "Distribution of Satisfaction with Block Assignments",
+       caption = "subset of those participating in block housing, sample < 300",
+       x = "Satisfaction (1=least; 5=most)",
+       y = "Count")
+
+# block Housing as priority selection
+surveyResults.copy %>% 
+        drop_na(blockAsPrioritySelection) %>%
+        ggplot(aes(x = blockAsPrioritySelection)) + geom_bar() +
+                   labs(title = "Perception of Block Housing as Priority Selection",
+                        caption = "Actual wording of question: 'Would one still do block',
+                                  'if block were after General Selection?'",
+                        x = "",
+                        y = "Count")
+```
+
+Contrarily, while block housing has been most popular for larger groups and can be seen to be perceived as a 'priority' selector, the following phase of General Selection serves to provide more flexibility for singleton participants (or groups smaller than 6). Additionally, because block housing is also only available in certain buildings (primarily apartments), General Selection panders to a crowd who might seek other buildings (i.e. some of the residential hall suite and semi-suite dorms). Particularly, some of the buildings with more 'desired' amenities don't offer block housing.  
+
+## Data
+
+I have had the opportunity to retrieve panel data from Housing Services for occupancies by house for each day of Room Selections in 2017 and 2018. With that I parsed through the difference between days to get Room Selection participation data. Though the data was by house, I was able to combine houses and refactor them to get aggregates by building (residence hall or apartment) type [^2] and by neighborhood. [^3]
+
+[^2]: Dorms have different building types which affect the desirability and popularity of certain buildings and so may be interesting to see if there are any trends as a result. For instance, block housing buildings are almost all apartment-style (i.e. Fairfax Apartments, Webster Apartments) whereas one of the most 'desired' buildings are residential hall style (i.e. Resnik, West Wing). There are additional subsets into the building types such as suite or semi-suite style, but was unable to get that due to limited data.
+[^3]: Dorms at CMU are spread among three broad areas called neighborhoods - Hill, Morewood, and Oakland. Hill neighborhood consists mostly of smaller residence hall style buildings (average capacity of 70 among the Hill upperclass buildings) compared to the Morewood and Oakland neighborhoods with more apartment styled buildings, averaging 290 and 162 in average capacity, respectively. [refer to capacity information in Appendix!] Therefore, it would also be interesting to see how neighborhood affects selection.
+
+[put in appendix reference to summary numbers: total capacity, total eligibles/participants, breakdown by year and houses **general summary**]  
+
+Refer to appendix summary of capacity, total eligibles, participant numbers. I include all houses that have upperclass students across all the years. As such, all upperclass houses but Boss House are included. Boss House is omitted because it only became non-first years only for the 2018 Room Selection cycle.  
+
+### Exit Survey Data: 2018 Room Selection
+
+In addition to getting capacity and participation data, I was also interested in getting any opinion/survey data from students regarding their perception of the process as added insights to the research since perception also influences behavior (i.e. join or leave Room Selection, which phase to participate in). It was harder to get the data as there are confidentiality (personal identifiable information) considerations on Housing's part, but I was able to get data from the 2018 Room Selection, a sample of 330 responses.[^4] I recognize that because the final working sample of about 300 responses is just about 10% of those eligible for Room Selection (or about 15% of those who actually participated) it may not be the most representative of the perceptions of the entire population, particularly of those who went off campus whose data aren't included in the survey. Additionally I recognize that with survey data there may usually be a skew toward the positive and/or negative extreme (positive, negative in terms of perception). In this case, it looks like there is a skew towards the positive end, however one would need to conduct additional tests or research to examine the perceptions more closely.  
+
+[^4]: Of which there were about 30 N/A, empty, or RA/CA responses that I had to clean out resulting in a working sample of about 300 responses.
+
+## Model
+
+Because of the limited data and the many moving parts involved in the full Room Selection model, I needed to find a way to be able to hone in on the areas of interest and conduct analyses from them. Normatively, I could recreate or design an experimental study of simpler proportions to test for preferences and tweaks to the model. However, I would still only get one iteration of the algorithm whereas many times I may be interested in seeing multiple 'runs' of the algorithm to test for different things.  
+
+As such, I found a platform online (spliddit.org) that is a non-profit academic endeavor by a group of academics, of which the lead Ariel Procaccia is a professor in the school of Computer Science at CMU (Goldman and Procaccia, 2014). Their platform applies various algorithms, many of which with basis in market design and economics, for easy access for the public. Their platform includes different sharing (i.e. sharing rent among groups of people), splitting, assignment (in their case it's assigning monetary units), and division mechanisms (dividing indivisible and divisible goods). For the purposes of this paper I look at the division mechanism and was able to use it as a means of 'simulating' a simple model for Room Selection. I then also conduct some sensitive type analysis from the simulation results.  
+
+### Parameters of the model
+
+From [proportion of phases graph/data] that I have, I create a simplified Room Selection 'economy' of eight participants that after the simulated Room Selection process, are assigned to their eight distinct assignments. The mappings are one-to-one and also no one is left unassigned - number of participants equal to number of assignments available. The assignments are based on the normative assignments in the example model and Appendix. It is a simplification as in reality there are not the same number of rooms/houses to the number of people.    
+
+The composition of the participants (e.g. class year, phase they participate in) are proportional to the composition of the participants from the data to more closely replicate the model. For instance, each participant is thereby meant to represent an individual, with a class year and phase label, to illustrate the different strategies/preferences of students of different years. Each building/room is also meant to represent a certain type of house (i.e. block apartment, nonblock generic residence hall, nonblock 'desired' residence hall...etc). See appendix for descriptions of the variables in the model.  
+
+After I input those onto Spliddit, I indicate building preferences/valuations for each participant by adjusting a slider from 0 (lowest valuation) to 1000 (highest valuation) and decreasing linearly among all nonzero choices such that the numbers are scaled in a way that they sum to 1000. It is important to note that Spliddit itself assigns everything simultaneously (i.e. only one phase of random serial dictatorship) while the actual Room Selection process has multiple chronological phases. Additionally, not all buildings are available at all phases. As a result, to help simulate this on Spliddit, based on which phase a participant is in, I only enter their valuations for the buildings that would be available to them at that time. For instance, for someone retaining (and choosing to retain their current assignment), they only have that one building as a preference and is valued at 1000 and everything else is valued at 0. [^4] For subsequent phases, I would enter valuations for buildings that are both unassigned still and available at the current phase. These conditions will be what I'll define to be the baseline specifications.[^5]  
+
+[^5]: Refer to spreadsheet results in appendix. 
+
+#### Model Example
+
++ $I \subseteq \mathbf{I}$ set of agents
+    + For our example: $I =$ {Tom, Louis, "Office Block", "Parks Block", "Friends Block", Sarah, Lisa, Josh}
++ $H \subseteq \mathbf{H}$ set of houses
+    + For our example: $H =$ {Gardens, Hill dorms, Wesnik, Fairfax, Webster, Highlands, Woodlawn, Doherty}
++ $R = (R_{i})_{i \in I} \in \mathbf{R}(I, H)$ preference profile
+    + Baseline (normative) preferences:
+        + $R_{Tom} =$ {Wesnik}
+        + $R_{Louis} =$ {Woodlawn}
+        + $R_{Office \ Block} =$ {Fairfax, Webster, Doherty}
+        + $R_{Parks \ Block} =$ {Webster, Doherty, Fairfax}
+        + $R_{Friends \ Block} =$ {Doherty, Fairfax, Webster}
+        + $R_{Sarah} =$ {Gardens, Hill dorms, Highlands}
+        + $R_{Lisa} =$ {Highlands, Gardens, Hill dorms}
+        + $R_{Josh} =$ {Hill dorms, as long as have any positive preference}
+
+```{r}
+# ![baseline] ("~/Desktop/roomselection/baselinePreferences.png")
+```
+
+[^4]: Technically, in reality they may or may not have to value it the highest to retain (i.e. if someone thinks it be too risky they won't get something as good as their current one they will retain their current room **even if** it isn't their top choice). But for simplicity of the model and the sake of individual rationality analysis, we will use one's current assignment as the 'baseline.'  
+
+Normative assignments based on these specifications:  
+
+assignment = {(Tom, Wesnik), (Louis, Woodlawn), (Office Block, Fairfax), (Parks Block, Webster), (Friends Block, Doherty), (Sarah, Gardens), (Lisa, Highlands), (Josh, Hill dorms)}  
+
+|       Welfare, Fairness numbers    |           |
+|:-----------------------------------|:---------:|
+|            Total welfare           |    5500   |
+|    Average (per person) welfare    |    687.5  |
+|       Measure of (in)equality      |    500    |
+
+Now, I'll convert the rankings to numbers by the ranking system mentioned above.   
+
+[mappings appendix too!]  
+
+## Discussion
+
+Because of the way the valuations are linearly decreasing and the way I worked in the different phases, one can conclude several things from the baseline specifications:  
+
++ Earlier is better - in terms of availability of choices and likelihood of getting first choice - which can help explain the popularity of block housing and its role as 'priority selector.'
++ Truthtelling is generally a dominant strategy (strategy proofness). Within one's phase, one would generally get his/her highest ranked choice.
++ In regards to Open Assignment, because it is the last phase and that since there are same number of buildings to participants (no one will be left unassigned in the model), there is only one building left for Open Assignment. [^6] It is an important point in that in reality it isn't perfectly one-to-one for everyone. The actual Room Selection process is both demand-constrained and supply-constrained - demand-constrained in that there are different amount of people valuing each building/room choice and supply-constrained in that there are unequal amounts of the different types. Additionally, there are also waitlists that are filled at this stage as well. In other words, availability (demand and supply constraints) outweighs preference/valuations at this phase, which can help explain why many cancellations (dropping out of the process) occur at this stage more than other stages. Of course, fact that this stage is a catch-all phase from the other phases also explain why there are 'spikes' in participation. [show that data]   
+
+[^6]: Based on how the Spliddit algorithm works, a 0 or negative valuation would not result in an assignment.
+
+### Retention Analysis
+#### What happens if we get rid of retention phase?
+
+Now that we know something about the baselike specification, let's tweak the valuations to simulate dropping the retention phase and see how it affects the process. By dropping the retention phase, it means that those who had retained would either choose to **stay** in the process (and participate in one of the other phases) or **leave** the process altogether (aka. moving off campus). In doing so there are certain assumptions I've had to make.  
+
+First, I make the assumption that for the existing tenants who choose to participate in Room Selection will participate in General Selection. The rationale being that since retainers will primarily be singleton participants (max 2 or 3 if they pulled in someone) it would make more sense/convenience to do General Selection than block housing so to not go through the hassle of organizing a block of students. Of course say if one day Housing did take out Retention altogether people would've had prior notice of it and would have the chance to do block housing if they wanted. But I believe my assumption is still logical in that choosing between both block housing or General Selection, General Selection may still be more appealing because it's less effort. And the numbers also show that there are more participants in General Selection than block housing so probability and the numbers also work out.  
+
+That said, in terms of preferences/valuations, the existing tenants who choose to participate will now have more houses in their preference set. As such, this lends to a natural conclusion that block housing in this model remains the same as that of when it was in the baseline specification. So the question now shifts to how this change affects General Selection and/or Open Assignment and possibly the entire process itself.
+
+There are several different cases that I considered to model. I first start out with the case like how it is in the baseline specification where the retainers' current assignments are their top choices. **This essentially means that we have tight individual rationality conditions and any solution that yields anything but this assignment will not be individual rational.**  
+
+Given this, there are two possibilities:
+
++ Existing tenants stay in the process (participating in General Selection)
++ (At least some of the) existing tenants leave the process 
+
+#### Existing tenants stay in process (participating in General Selection)
+
+For this possibility, there are many different cases that can happen, depending on the participants' preferences. Because it happens that of the two existing retainers and two existing General Selectioners that there are one of each in residence hall (retain1, general1) and the other in apartment style buildings (retain2, general2), some cases that I tested were: 
+
++ retain1's preferences $=$ general1's preferences and/or retain2's preferences $=$ general2's preferences
++ retain1's preferences $\not=$ general1's preferences and/or retain2's preferences $\not=$ general2's preferences
++ general1's preferences $=$ general2's preferences $=$ retain1's preferences and/or retain2's preferences...and some variations of this case $\rightarrow$ this case mainly to illustrate the role of having certain *super* popular houses (particularly "legacy houses") and what could happen if they don't become "legacy" anymore (aka when there's no more retention).
+
+...and there are many more cases and variants of these cases. However, after averaging these cases we see that these cases have lower gross and per person welfare than our baseline specification. Since we know for these cases we are giving up individual rationality, it makes sense that we get lower welfare ("satisfaction") numbers. However, we also get less 'inequality' [^7], meaning therefore it is fairer. See the excel results in the appendix for more detailed results, but with our example I'll go over some cases as well.  
+
+But one interesting thing to note is that while the average of the cases show lower welfare but higher fairness, several of the cases where there was 'legacy' housing (multiple people competing for the same houses) had slightly more inequality. Interesting as one can say that a way to increase perception of fairness in the system is to make room/building types more 'balanced' in quality (i.e. amenities, prices, and any other external factors that for the purpose of my research are not studied). In other words, "legacy houses" increase inequality (reduce perception of fairness of the system).  
+
+[^7]: Inequality in this case is measured by looking at the absolute value of the difference in each simulation of the highest assigned valuation and the lower assigned valuation ($\lvert(highest - lowest)\rvert$). For instance, if someone got their first choice, say valued at the high extreme of 1000, that would be the highest assigned valuation and someone who got their lowest choice, say the low extreme of 0 (unassigned/left process), that would be the lowest assigned valuation. The greater the difference the more *variation* among the assignments and therefore signifying more inequality. This inequality number ranges from 0 (completely egalitarian system) to 1000 (wholly unequal).  
+
+Before I discuss the possibility where at least some of the retainers leave the process, let me discuss a particular case where retainers stay in the process but their current assignments are their last choices. Contrary to the previous cases, now our **individual rationality conditions are the most slack and that anything short of retainers leaving will make the final assignment be at least individual rational**. As such, for this possibility I **only** test when retainers participate in the process because they would almost always be better off participating. [^8] As such, let's call this the 'guaranteed individual rational' case. Looking at the results of the simulation, we see that a **cost of gaining individual rationality here is (pareto) efficiency**. Again, it will depend on the exact preferences of the participants. And, if we relax the assumption that retainers would only join General Selection, one can again see the potential losses of efficiency with the potentially increased 'competition' in both block housing **and** General Selection.
+
+[^8]: This assumption was made based on the data I got and from prior experience soliciting feedback from residents, but in real life even if preferences might be more *appealing* to participate in Room Selection, there are external factors that could mean people don't participate (i.e. most obvious factor might be cheaper off-campus rent, otherwise known as external competition, especially since there have been rapid development of off campus student housing complexes in the Pittsburgh area recently). But other reasons may also include bad experiences within the community/amenities and etc...I note this because apparently during the current year's Room Selection that just wrapped while I'm writing this thesis there has been a 'surplus' issue.
+
+#### Continuing with our Example
+
++ Case 1: Tom and Louis (currently in their 1st choice assignments)[^9] to **stay** in process
+    + when Tom and Sarah have same preferences (Sarah also likes Wesnik) and/or Lisa and Louis have same preferences (Lisa also likes Woodlawn)
+    + Preferences:
+        + $R_{Tom} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Louis} =$ {Woodlawn, Highlands, Gardens, Hill dorms, Wesnik}
+        + $R_{Office \ Block} =$ {Fairfax, Webster, Doherty}
+        + $R_{Parks \ Block} =$ {Webster, Doherty, Fairfax}
+        + $R_{Friends \ Block} =$ {Doherty, Fairfax, Webster}
+        + $R_{Sarah} =$ {Wesnik, Hill dorms, Gardens, Highlands, Woodlawn}
+        + $R_{Lisa} =$ {Woodlawn, Highlands, Gardens, Hill dorms, Wesnik}
+        + $R_{Josh} =$ {Hill dorms, Wesnik, Gardens, Highlands, Woodlawn}
+
+Assignment: {(Tom, Gardens), (Louis, Woodlawn), (Office Block, Fairfax), (Parks Block, Webster), (Friends Block, Doherty), (Sarah, Wesnik), (Lisa, Highlands), (Josh, Hill dorms)}  
+
+|       Welfare, Fairness numbers    |           | Baseline  |
+|:-----------------------------------|:---------:|:---------:|
+|            Total welfare           |    2900   |    5500   |
+|    Average (per person) welfare    |    362.5  |    687.5  |
+|       Measure of (in)equality      |    350    |    500    |
+
++ Case 2: Tom and Louis (currently in their 1st choice assignments) to **stay** in process
+    + when Tom and Sarah don't have same preferences (Sarah doesn't necessarily like Wesnik) and/or Lisa and Louis don't have same preferences (Lisa doesn't necessarily like Woodlawn)
+    + Preferences:
+        + $R_{Tom} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Louis} =$ {Woodlawn, Highlands, Gardens, Hill dorms, Wesnik}
+        + $R_{Office \ Block} =$ {Fairfax, Webster, Doherty}
+        + $R_{Parks \ Block} =$ {Webster, Doherty, Fairfax}
+        + $R_{Friends \ Block} =$ {Doherty, Fairfax, Webster}
+        + $R_{Sarah} =$ {Wesnik, Highlands, Woodlawn, Gardens, Hill dorms}
+        + $R_{Lisa} =$ {Woodlawn, Wesnik, Highlands, Gardens, Hill dorms}
+        + $R_{Josh} =$ {Hill dorms, Wesnik, Highlands, Woodlawn, Gardens}
+
+Assignment: {(Tom, Gardens), (Louis, Woodlawn), (Office Block, Fairfax), (Parks Block, Webster), (Friends Block, Doherty), (Sarah, Highlands), (Lisa, Wesnik), (Josh, Hill dorms)}  
+
+|       Welfare, Fairness numbers    |           | Baseline  |
+|:-----------------------------------|:---------:|:---------:|
+|            Total welfare           |    2850   |    5500   |
+|    Average (per person) welfare    |   356.25  |    687.5  |
+|       Measure of (in)equality      |    250    |    500    |
+
++ Case 3: Tom, Louis, Sarah, Lisa have the same preferences - the case illustrating the role of certain highly desired ('legacy') houses
+    + Preferences:
+        + $R_{Tom} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Louis} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Office \ Block} =$ {Fairfax, Webster, Doherty}
+        + $R_{Parks \ Block} =$ {Webster, Doherty, Fairfax}
+        + $R_{Friends \ Block} =$ {Doherty, Fairfax, Webster}
+        + $R_{Sarah} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Lisa} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Josh} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+
+Assignment: {(Tom, Hill dorms), (Louis, Wesnik), (Office Block, Fairfax), (Parks Block, Webster), (Friends Block, Doherty), (Sarah, Gardens), (Lisa, Highlands), (Josh, Woodlawn)}  
+
+
+|       Welfare, Fairness numbers    |           | Baseline  |
+|:-----------------------------------|:---------:|:---------:|
+|            Total welfare           |    2500   |    5500   |
+|    Average (per person) welfare    |    312.5  |    687.5  |
+|       Measure of (in)equality      |    400    |    500    |
+
+[^9]: One more assumption is that since there are 1 apartment and 1 residence hall styled among the retainers, for simplicity I assume retainers prefer buildings of the same type as their current assignments over the other building type (e.g. Tom currently in Wesnik, so he will rank residence-hall styled buildings before apartment styled, same for Louis)
+
+Though these are only just some of the cases and I've made certain simplifying assumptions, one can see lower welfare [^10] and inequality levels when we drop retention phase. Particularly, in case 3 where we have 'legacy' houses we see both welfare and inequality tick up a bit than the other cases. Not too surprising though however since we know that we are losing individual rationality in these cases and so it makes sense we're getting lower welfare numbers. This also confirms what we said previously about earlier being better and the role of block housing as a 'priority selector.' We can now add that retention plays the important role of not only individual rationality (welfare-boosting) but also providing a sense of **certainty** for participants' assignments. But on the flip side, the existence of 'legacy' houses also diminish the (perceived) fairness in the system and is important to note as it may affect underclass (first- and second- years) decisions in the process, especially since they make up the majority of the participants in Room Selection.
+
+[^10]: Welfare is defined by the values 0 to 1000 assigned based on the preferences of the participants' final assignments. The higher the value the more 'desired' the assignment was to a participant - the more 'satisfied' a participant is with their assignment.
+
+#### At least some of the retainers leave the process
+
+For this possibility, I will go right to our example to illustrate:  
+
++ Tom and Louis decide they're done with housing and get a house in Squirrel Hill, a common area for people who move off campus to go to, and thereby freeing up their spaces.
+    + Preferences:
+        + $R_{Tom} =$ {Unassigned (off campus), Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Louis} =$ {Unassigned (off campus), Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Office \ Block} =$ {Fairfax, Webster, Doherty}
+        + $R_{Parks \ Block} =$ {Webster, Doherty, Fairfax}
+        + $R_{Friends \ Block} =$ {Doherty, Fairfax, Webster}
+        + $R_{Sarah} =$ {Wesnik, Gardens, Hill dorms, Highlands, Woodlawn}
+        + $R_{Lisa} =$ {Woodlawn, Highlands, Gardens, Hill dorms, Wesnik}
+        + $R_{Josh} =$ {Hill dorms, Wesnik, Highlands, Woodlawn, Gardens}
+
+Assignment: {(Tom, unassigned), (Louis, unassigned), (Office Block, Fairfax), (Parks Block, Webster), (Friends Block, Doherty), (Sarah, Wesnik), (Lisa, Woodlawn), (Josh, Hill dorms)}  
+
+For this case I include 'unassigned' into the preferences. In the previous cases I could've also included but it would just be on the very last preference for everyone since for the purpose of this paper I assume that being 'assigned' to something is still *weakly better* than being 'unassigned'. Therefore, to be unassigned is a **voluntary** choice on the participant's part and therefore is not factored into the the following welfare/fairness numbers.[^11]     
+
+|       Welfare, Fairness numbers    |           | Baseline  |
+|:-----------------------------------|:---------:|:---------:|
+|            Total welfare           |    2400   |    5500   |
+|    Average (per person) welfare    |    400    |    687.5  |
+|       Measure of (in)equality      |    200    |    500    |  
+
+
+However, if I do relax the assumption and take into account the state of un-assignment into the welfare/fairness numbers I get this:  
+
+|       Welfare, Fairness numbers    |           | Baseline  |
+|:-----------------------------------|:---------:|:---------:|
+|            Total welfare           |    2400   |    5500   |
+|    Average (per person) welfare    |    300    |    687.5  |
+|       Measure of (in)equality      |    500    |    500    |    
+
+[^11]: In reality one can see that may not always be the case, and as I have shown above if we include being 'unassigned' into our welfare calculations by assigning it to 0 welfare (as opposed to omitting it) to try to loosen the assumption, it changes the welfare and fairness numbers. Again, of course being 'unassigned' doesn't always have to be the last choice but rather in the middle. In that case it would act like a kind of 'preference floor' such that anything worse (or the perception that one might get something worse) would result in the participant to prefer to leave the process.
+
+## Conclusion
+
+[Eric, finish this soon!!!]
+
+## Appendix things to include:
+
++ list of all upperclass buildings used in the analysis
+    + capacity, average capacity
+    + marginals by neighborhood and by building types
++ graphs
+    + Room Selection participation over time
+    + survey results
+    + proportion of people doing each of the phases
++ mappings
++ spreadsheet simulation results
+
+### Appendix: Mappings
+
+#### Buildings and mapping to the model
+
+| variable |   mapping  |           type         |
+|:--------:|:-----------|:----------------------:|
+| resHall1 |    Gardens |        generic resHall |
+| resHall2 | Hill dorms |        generic resHall |
+| resHall3 |     Wesnik |        'prime' resHall |
+|     apt1 |    Fairfax |    generic apt (block) |
+|     apt2 |    Webster |    generic apt (block) |
+|     apt3 |  Highlands |            generic apt |
+|     apt4 |   Woodlawn |           'prime' apt  |
+|     apt5 |    Doherty |    generic apt (block) |
+
+#### Participants and mapping to the model
+
+|        name       |           (class, phase)         |                  block members                 |
+|:-----------------:|:--------------------------------:|:----------------------------------------------:|
+|               Tom |           (sophomore, retention) |                                                |
+|             Louis |           (sophomore, retention) |                                                |
+|    "Office Block" |        (freshman, block housing) |      Michael, Dwight, Jim, Pam, Stanley, Creed |
+|     "Parks Block" |        (freshman, block housing) |             Leslie, Ann, Tom, Ron, Andy, April |
+|   "Friends Block" |       (sophomore, block housing) | Jennifer, Joey, Phoebe, Monica, Ross, Chandler |
+|             Sarah |    (freshman, general selection) |                                                |
+|              Lisa |      (junior, general selection) |                                                |
+|              Josh |      (freshman, open assignment) |                                                |
+
+#### (Normative) assignments for the model
+
+|  building  |      participant     |
+|:-----------|:--------------------:|
+|    Gardens |                Sarah |
+| Hill dorms |                 Josh |
+|     Wesnik |                  Tom |
+|    Fairfax |       "Office Block" |
+|    Webster |        "Parks Block" |
+|  Highlands |                 Lisa |
+|   Woodlawn |                Louis |
+|    Doherty |      "Friends Block" |
+
+#### Graphs
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Distribution of class years
+ggplot(data = surveyResults.copy, aes(x = Year_ordered, 
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Class", y = "Count", title = "Distribution of Class")
+
+# Distribution of phases
+ggplot(data = surveyResults.copy, aes(x = Phase_ordered)) + 
+  geom_bar() +
+  labs(title = "Distribution of Participation in Room Selection Phases",
+       x = "Phase of Room Selection",
+       y = "Count", title = "Distribution of Phases")
+
+# Year vs Phase of Room Selection participating in
+ggplot(data = surveyResults.copy, aes(x = Year_ordered,
+                                      fill = Phase_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Class", y = "Count", fill = "Phase of Room Selection",
+           title = "Class by Phase")
+
+ggplot(data = surveyResults.copy, aes(x = Phase_ordered,
+                                      fill = Year_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Phase of Room Selection", y = "Count", fill = "Class",
+           title = "Phase by Class")
+
+# Distribution of fairness
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Fairness,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Fairness (1=least; 5=most)", y = "Count",
+           title = "Distribution of Fairness")
+
+# Year vs Perception of fairness
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Fairness,
+                                      fill = Year_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Fairness (1=least; 5=most)", y = "Count", fill = "Class",
+           title = "Perception of fairness by Class")
+
+# Year vs Perception of Simplicity
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Simplicity,
+                                      fill = Year_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Simplicity (1=least; 5=most)", y = "Count", fill = "Class",
+           title = "Perception of simplicity by Class")
+
+# Year vs Perception of Stressfulness
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Stressfulness,
+                                      fill = Year_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Stressfulness (1=least; 5=most)", y = "Count", fill = "Class",
+           title = "Perception of stressfulness by Class")
+
+# Phase vs Fairness
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Fairness,
+                                      fill = Phase_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Fairness (1=least; 5=most)", y = "Count", 
+           fill = "Phase of Room Selection", 
+           title = "Perception of fairness by Phase")
+
+# Phase vs Simplicity
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Simplicity,
+                                      fill = Phase_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Simplicity (1=least; 5=most)", y = "Count", 
+           fill = "Phase of Room Selection",
+           title = "Perception of simplicity by Phase")
+
+# Phase vs Stressfulness
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$Stressfulness,
+                                      fill = Phase_ordered,
+                                      na.rm = TRUE)) + 
+      geom_bar() +
+      labs(x = "Stressfulness (1=least; 5=most)", y = "Count", fill = "Class",
+           title = "Perception of stressfulness by Phase")
+
+# satisfaction with choices/preferences/final assignment
+# raw satisfaction graph
+
+# can be used to help provide insight into 'pareto efficiency'
+ggplot(data = surveyResults.copy, aes(x = surveyResults.copy$`Satisfaction*`,
+                                      na.rm = TRUE)) +
+      geom_bar() +
+      labs(caption = "Satisfaction a general term to indicate a participant's opinion, 
+           on the desirability of the choices available to them as well as their final, 
+           assignments", 
+           x = "Satisfaction (1=least; 5=most)", 
+           y = "Count",
+           title = "Distribution of satisfaction with final assignments")
+```
+
+## Sources
+
++ Abdulkadiroglu, A., & Sonmez, T. (1998). Random Serial Dictatorship and the Core from Random Endowments in House Allocation Problems. *Econometrica*, 66 (3), 689-701.
++ Abdulkadiroglu, A., & Sonmez, T. (1999). House allocation with existing tenants. *Journal of Economic Theory*, 88, 233-260.
++ Bogomolnaia, A., & Moulin, H. (2002). A Simple Random Assignment Problem with a Unique Solution. *Economic Theory*, 19 (3), 623-635.
++ Budish, E., Che, Y.K., Kojima, F., & Milgrom, P. (2013). Designing Random Allocation Mechanisms: Theory and Applications. *American Economic Review*, 103 (2), 585-623.
++ Goldman, J., & Procaccia, A. (2014). Spliddit: Unleashing Fair Division Algorithms. *ACM SIGecom Exchanges*, 13 (2), 41-46.
++ Hylland, A., & Zeckhauser, R. (1979). The Efficient Allocation of Individuals to Positions. *Journal of Political Economy*, 87 (2), 293-314.
++ Ong, S.E., Petrova, M., Spieler, A.C. (2013). Demand for University Housing: An Empirical Analysis. *Journal of Housing Research*, 22, Issue 2.
++ Roth, A.E., & Postlewaite, A. (1977). Weak versus strong domination in a market with indivisible goods, *Journal of Math Economics*, 4, 131-137.  
++ Roth, A.E. (1982). Incentive compatibility in a market with indivisble goods. *Economics Letters*, 9, 127-132.
++ Shapley, L., & Scarf, H. (1974). On cores and indivisibility, *Journal of Math Economics*, 1, 23-28
++ Sonmez, T., & Unver, M.U. (2004). House allocation with existing tenants: an equivalence. *Games and Economic Behavior*, 52, 153-185.
++ Sonmez, T., & Unver, M.U. (2006). Kidney exchange with good Samaritan donors: A characterization. *Boston College and University of Pittsburgh Working Paper*. Availabl at http://ideas.repec.org/p/boc/bocoec/640.html.
++ Sonmez, T., & Unver, M.U. (2010). House allocation with existing tenants: A characterization. *Games and Economic Behavior*, 69, 425-445.
++ Varian, H. (1973). Equity, Envy, and Efficiency. *Massachusetts Institute of Technology Working Paper*, 115.
++ Yan, C., & Sonmez, T. (2002). Improving Efficiency of On-Campus Housing: An Experimental Study. *American Economic Review*, 92 (5), 1669-1686. DOI: 10.1257/000282802762024728  
+
+
