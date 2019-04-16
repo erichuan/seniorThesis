@@ -18,6 +18,9 @@ library(reshape2)
 library(naniar)
 library(gridExtra)
 library(plyr)
+library(knitr)
+options(knitr.table.format = "html")
+library(kableExtra)
 ```
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
@@ -347,7 +350,7 @@ Though these are only just some of the cases and I've made certain simplifying a
 
 [^10]: Welfare is defined by the values 0 to 1000 assigned based on the preferences of the participants' final assignments. The higher the value the more 'desired' the assignment was to a participant - the more 'satisfied' a participant is with their assignment.
 
-#### At least some of the retainers leave the process
+#### At least some of the existing tenants leave the process
 
 For this possibility, I will go right to our example to illustrate:  
 
@@ -385,7 +388,7 @@ However, if I do relax the assumption and take into account the state of un-assi
 
 ## Conclusion
 
-[Eric, finish this soon!!!]
+Through this paper I gave a description of the Room Selection process at Carnegie Mellon and 
 
 ## Appendix things to include:
 
@@ -398,6 +401,47 @@ However, if I do relax the assumption and take into account the state of un-assi
     + proportion of people doing each of the phases
 + mappings
 + spreadsheet simulation results
+
+### Appendix: Summary 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# capacity, eligibles, participation summary
+sum1 <- read.csv("~/Desktop/roomselection/summary1.csv")
+colnames(sum1)[1] <- "variables"
+
+customRows <- c("Total Capacity", "Capacity for RS", "Eligible for RS", "Eligible first years",
+                "Eligible sophomores", "Eligible juniors", "Eligible seniors", "Participated in RS",
+                "Participated first years", "Participated sophomores", "Participated juniors", 
+                "Participated seniors")
+
+sum1 %>%
+  slice(match(customRows, variables)) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  add_indent(c(4:7,9:12)) %>%
+  footnote(general = "NAs representing missing data, data that was either uncollected or unable to get from Housing.")
+
+# buildings total capacity
+sum2 <- read.csv("~/Desktop/roomselection/summary2.csv")
+sum2 <- sum2[-c(27),-c(3:8)]
+
+sum2 %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  footnote(general = "Total capacity of 3585")
+
+# buildings for RS (capacity for RS)
+sum3 <- read.csv("~/Desktop/roomselection/summary3.csv")
+colnames(sum3)[2] <- "Capacity"
+sum3 <- sum3[-c(19),]
+
+sum3 %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  footnote(number = c("Includes 62 student staff (RA/CAs) in those buildings", 
+                      "Total available capacity of 1963"))
+```
+
 
 ### Appendix: Mappings
 
