@@ -15,6 +15,7 @@ Materials:
     + 2018 Housing Room Selection survey results: rsSurvey18.csv
 + Data summary (i.e., exploratory data analysis EDA, graphs, etc.): roomSelection.Rmd
     + For more readability: roomSelection.html
++ Model / Sensitivity results from spliddit.org: roomSelectionSheetsCleaned.pdf
 + R markdown (original-unabridged) file: seniorThesis.Rmd
 + R markdown (summary-abridged) file: seniorThesis copy.Rmd
 + Final paper (unabridged 33 pages): EricHuang_SeniorThesis.pdf
