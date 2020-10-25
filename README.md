@@ -5,7 +5,7 @@ Analyzed University housing room assignment algorithm through from a market desi
 Relevant / finalized files:
 + Final paper (unabridged 33 pages): EricHuang_SeniorThesis.pdf
 + Abridged 10 pages for writing sample submissions (August 2020): Huang_Eric_UndergradSeniorThesis_abridged.pdf
-+ R markdown (unabridged) file: seniorThesis.Rmd
++ R markdown (original-unabridged) file: seniorThesis.Rmd
 + R markdown (abridged) file: seniorThesis copy.Rmd
 
 *Data files (obtained from Carnegie Mellon's Housing Services) can be provided upon request*
