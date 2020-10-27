@@ -1,0 +1,370 @@
+---
+title: "R Code Sample"
+subtitle: "Senior Thesis Data Cleaning"
+author: "Eric Huang"
+date: "11/24/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(reshape2)
+library(naniar)
+library(gridExtra)
+library(plyr)
+library(knitr)
+options(knitr.table.format = "html")
+library(kableExtra)
+```
+
+## Overview
+
+Analyzed University housing room assignment algorithm through from a market design perspective and presented findings at Carnegie Mellon’s Meeting of the Minds (annual research symposium) as well as Housing Services at an all-staff meeting in May 2019
+
+### Raw Data
+
+Source: Carnegie Mellon University Housing Services
+
++ 2017-18 Housing Room Selection Capacity/Occupancy numbers
+    + Daily (almost daily) by 25+ residence halls (approx. 3500 bed spaces) 
++ 2018-19 Housing Room Selection Capacity/Occupancy numbers
+    + Daily (almost daily) by 25+ residence halls (approx. 3500 bed spaces)
++ 2018 Housing Room Selection survey
+
+## Summary Statistics
+
+### Capacity/Occupancy
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# buildings total capacity
+sum2 <- read.csv("~/Desktop/thesisDocuments/summary2.csv")
+sum2 <- sum2[-c(27),-c(3:8)]
+
+sum2 %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  footnote(general = "2018: Total capacity of 3585")
+```
+
+### Eligible vs Actual Participants of Room Selection
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# capacity, eligibles, participation summary
+sum1 <- read.csv("~/Desktop/thesisDocuments/summary1.csv")
+colnames(sum1)[1] <- "variables"
+
+customRows <- c("Total Capacity", "Capacity for RS", "Eligible for RS", "Eligible first years",
+                "Eligible sophomores", "Eligible juniors", "Eligible seniors", "Participated in RS",
+                "Participated first years", "Participated sophomores", "Participated juniors", 
+                "Participated seniors")
+
+sum1 %>%
+  slice(match(customRows, variables)) %>%
+  kable() %>%
+  kable_styling(full_width = F) %>%
+  add_indent(c(4:7,9:12)) %>%
+  footnote(general = "NAs representing missing data, data that was either uncollected or unable to get from Housing.")
+```
+
+### Room Selection participation numbers by Phase
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+sum4_t <- read.csv("~/Desktop/thesisDocuments/summary4_t.csv")
+
+colnames(sum4_t) <- c("Year", "Retention", "Block Housing", "General Selection", "Open Assignment", "Total")
+
+years <- c("2014", "2015", "2016", "2017", "2018")
+
+sum4_t %>%
+  slice(match(years, Year)) %>%
+  kable() %>%
+  kable_styling(full_width = F)
+
+
+```
+
+## Code
+
+```{r}  
+# 2017-18 data
+
+# Loading 2017-18 capacity/occupancy sheets
+library("readxl")
+
+sheets <- excel_sheets("~/Desktop/thesisDocuments/1718cap_occup.xlsx")
+sheetList <- lapply(sheets, 
+                    function(x)read_excel("~/Desktop/thesisDocuments/1718cap_occup.xlsx",
+                                          range = "A1:P30",
+                                          sheet = x))
+
+names(sheetList) <- sheets
+
+# Selecting upperclass houses (rows)
+uc_houses_num <- c(2,3,5,7,8,9,11,13,15,16,18,20,21,23,24,25,26,27,29)
+sheetNames <- names(sheetList)
+uc_list <- list()
+for (i in 1:length(sheetNames)) {
+  curr_sheet <- sheetList[[sheetNames[i]]]
+  if (curr_sheet[21,1] == "Stever House"){
+    uc_houses_num <- c(2,3,5,7,8,9,11,13,15,16,18,20,22,23,24,25,26,27)
+  } else {
+    uc_houses_num <- c(2,3,5,7,8,9,11,13,15,16,18,20,21,23,24,25,26,27)
+  }
+  
+  cleaned_sheet <- curr_sheet[uc_houses_num,]
+  uc_list[[i]] = cleaned_sheet
+}
+names(uc_list) <- sheets
+list2env(uc_list,.GlobalEnv)
+
+# Selecting upperclass occupancy/vacancy variables (columns)
+sheetNames <- names(uc_list)
+for (i in 1:length(sheetNames)){
+  curr_sheet <- uc_list[[sheetNames[i]]]
+  cleaned_sheet <- curr_sheet[c(1,4,8,12)]
+  uc_list[[i]] = cleaned_sheet
+}
+
+names(uc_list) <- sheets
+list2env(uc_list,.GlobalEnv)
+
+# Computing column totals
+sheetNames <- names(uc_list)
+for (i in 1:length(sheetNames)){
+  curr_sheet <- uc_list[[sheetNames[i]]]
+  cleaned_sheet <- rbind(curr_sheet, c("Total", colSums(curr_sheet[-1])))
+  colnames(cleaned_sheet) <- c("Building", "Capacity (in beds)", "Actual Occupancy", "Vacancy")
+  uc_list[[i]] = cleaned_sheet
+}
+
+names(uc_list) <- sheets
+list2env(uc_list,.GlobalEnv)
+
+# Editing row name wording
+sheetNames <- names(uc_list)
+# may need to run loop twice for *both* 'Spirit' *and* '5170 MM' to come up
+for (i in 1:length(sheetNames)){
+  curr_sheet <- uc_list[[sheetNames[i]]]
+  cleaned_sheet <- curr_sheet
+  if (curr_sheet[12,1] == "Spirit House/Roselawn 15"){
+    cleaned_sheet[12,1] = "Spirit House"
+  } else if (curr_sheet[13,1] == "Spirit House/5170 MM"){
+    cleaned_sheet[13,1] = "5170 MM"
+  } 
+  uc_list[[i]] = cleaned_sheet
+}
+
+names(uc_list) <- sheets
+list2env(uc_list,.GlobalEnv)
+
+# Adjusting 'Building' order
+sheetNames <- names(uc_list)
+house_order <- c("Clyde House",
+                 "Doherty Apartments",
+                 "Fairfax Apartments",
+                 "Henderson House",
+                 "The Highlands Apts.",
+                 "Margaret Morrison Apts",
+                 "McGill House",
+                 "Morewood Gardens",
+                 "Neville Apartments",
+                 "Resnik House",
+                 "Roselawn Houses",
+                 "Shady Oak Apartments",
+                 "Spirit House",
+                 "Webster Apartments",
+                 "Welch House",
+                 "West Wing",
+                 "Woodlawn Apartments",
+                 "5170 MM",
+                 "Total")
+
+for (i in 1:length(sheetNames)){
+  sheet <- uc_list[[sheetNames[i]]]
+  sheet <- sheet[match(house_order, sheet$Building),]
+  uc_list[[i]] = sheet 
+}
+
+names(uc_list)
+list2env(uc_list,.GlobalEnv)
+
+# removing NA row from 'Original - 10-26-16' sheet
+uc_list$`Original - 10-26-16` <- uc_list$`Original - 10-26-16`[c(1:17,19),]
+names(uc_list)
+list2env(uc_list,.GlobalEnv)
+
+# reodering 'Original - 10-26-16' from position 1 to position 62
+uc_list <- c(uc_list[-1],uc_list[1])
+names(uc_list)
+list2env(uc_list,.GlobalEnv)
+
+# removing inaccurate "total" row from 'Original - 10-26-16' sheet
+uc_list[[62]] <- uc_list[[62]][-c(18),]
+curr_sheet <- uc_list[[62]]
+names(uc_list)
+list2env(uc_list,.GlobalEnv)
+
+# recalculating "total" for 'Original - 10-26-16' sheet
+curr_sheet <- uc_list[[62]]
+curr_sheet2 = curr_sheet[[1]]
+curr_sheet2 = as.data.frame(matrix(nrow=length(curr_sheet2), ncol=4))
+curr_sheet2$Building = curr_sheet[[1]]
+curr_sheet2$Capacity = as.numeric(curr_sheet[[2]])
+curr_sheet2$Occ = as.numeric(curr_sheet[[3]])
+curr_sheet2$Vac = as.numeric(curr_sheet[[4]])
+  
+curr_sheet2 = curr_sheet2[,-(1:4)]
+colnames(curr_sheet2) = colnames(curr_sheet)
+cleaned_sheet <- rbind(curr_sheet, c("Total", colSums(curr_sheet2[-1])))
+uc_list[[62]] = cleaned_sheet
+
+names(uc_list)
+list2env(uc_list,.GlobalEnv)
+
+# reorder dataframes by chronological order
+library(rlist)
+uc_list <- list.reverse(uc_list)
+names(uc_list)
+list2env(uc_list,.GlobalEnv)
+
+```
+
+```{r}
+# 2018-19 data
+
+# Loading 2018-19 capacity/occupancy sheets
+sheets1 <- excel_sheets("~/Desktop/thesisDocuments/1819cap_occup.xlsx")
+sheetList1 <- lapply(sheets1, 
+                    function(x)read_excel("~/Desktop/thesisDocuments/1819cap_occup.xlsx",
+                                          range = "A1:P30",
+                                          sheet = x))
+names(sheetList1) <- sheets1
+
+# Selecting upperclass houses (rows)
+sheetNames <- names(sheetList1)
+uc_list1 <- list()
+for (i in 1:length(sheetNames)) {
+  curr_sheet <- sheetList1[[sheetNames[i]]]
+  if (curr_sheet[17,1] == "Scobell House"){
+    uc_houses_num <- c(2,3,5,7,8,9,11,13,15,16,18,20,21,23,24,25,26,27)
+  } else {
+    uc_houses_num <- c(2,3,5,7,8,9,10,12,14,16,17,18,20,22,24,25,26,27)
+  }
+  cleaned_sheet <- curr_sheet[uc_houses_num,]
+  uc_list1[[i]] = cleaned_sheet
+}
+
+names(uc_list1) <- sheets1
+list2env(uc_list1,.GlobalEnv)
+
+# Selecting upperclass occupancy/vacancy variables (columns)
+sheetNames <- names(uc_list1)
+for (i in 1:length(sheetNames)){
+  curr_sheet <- uc_list1[[sheetNames[i]]]
+  cleaned_sheet <- curr_sheet[c(1,4,8,12)]
+  uc_list1[[i]] = cleaned_sheet
+}
+
+names(uc_list1) <- sheets1
+list2env(uc_list1,.GlobalEnv)
+
+# Computing column totals
+sheetNames <- names(uc_list1)
+for (i in 1:length(sheetNames)){
+  curr_sheet <- uc_list1[[sheetNames[i]]]
+  
+  curr_sheet2 = curr_sheet[[1]]
+  curr_sheet2 = as.data.frame(matrix(nrow=length(curr_sheet2), ncol=4))
+  curr_sheet2$Building = curr_sheet[[1]]
+  curr_sheet2$Capacity = as.numeric(curr_sheet[[2]])
+  curr_sheet2$Occ = as.numeric(curr_sheet[[3]])
+  curr_sheet2$Vac = as.numeric(curr_sheet[[4]])
+  
+  curr_sheet2 = curr_sheet2[,-(1:4)]
+  colnames(curr_sheet2) = colnames(curr_sheet)
+  
+  cleaned_sheet <- rbind(curr_sheet, c("Total", colSums(curr_sheet2[-1])))
+  colnames(cleaned_sheet) <- c("Building", "Capacity (in beds)", "Actual Occupancy", "Vacancy")
+  uc_list1[[i]] = cleaned_sheet
+}
+
+names(uc_list1) <- sheets1
+list2env(uc_list1,.GlobalEnv)
+
+# Editing row name wording
+sheetNames <- names(uc_list1)
+# may need to run loop twice for *both* 'Spirit' *and* '5170 MM' to come up
+for (i in 1:length(sheetNames)){
+  curr_sheet <- uc_list1[[sheetNames[i]]]
+  cleaned_sheet <- curr_sheet
+  if (curr_sheet[11,1] == "Roselawn 15/Old Spirit"){
+    cleaned_sheet[11,1] = "Spirit House"
+  } else if (curr_sheet[12,1] == "Spirit House/Roselawn 15"){
+    cleaned_sheet[12,1] = "Spirit House"
+  } else if (curr_sheet[14,1] == "Spirit House/5170 MM"){
+    cleaned_sheet[14,1] = "5170 MM"
+  } else if (curr_sheet[13,1] == "Spirit House/5170 MM"){
+    cleaned_sheet[13,1] = "5170 MM"
+  }
+  uc_list1[[i]] = cleaned_sheet
+}
+
+names(uc_list1) <- sheets1
+list2env(uc_list1,.GlobalEnv)
+
+# Adjusting 'Building' order
+sheetNames <- names(uc_list1)
+house_order <- c("Clyde House",
+                 "Doherty Apartments",
+                 "Fairfax Apartments",
+                 "Henderson House",
+                 "The Highlands Apts.",
+                 "Margaret Morrison Apts",
+                 "McGill House",
+                 "Morewood Gardens",
+                 "Neville Apartments",
+                 "Resnik House",
+                 "Roselawn Houses",
+                 "Shady Oak Apartments",
+                 "Spirit House",
+                 "Webster Apartments",
+                 "Welch House",
+                 "West Wing",
+                 "Woodlawn Apartments",
+                 "5170 MM",
+                 "Total")
+
+for (i in 1:length(sheetNames)){
+  sheet <- uc_list1[[sheetNames[i]]]
+  sheet <- sheet[match(house_order, sheet$Building),]
+  uc_list1[[i]] = sheet 
+}
+
+names(uc_list1)
+list2env(uc_list1,.GlobalEnv)
+
+# removing '2-21-18(day1RS)' and '2-22-18(day2RS)' sheets from general list
+uc_list1 <- uc_list1[-c(51,52)]
+names(uc_list1)
+list2env(uc_list1,.GlobalEnv)
+
+# create separate list for the "proposed" sheets
+proposed_list <- uc_list1[c(50:55)]
+names(proposed_list)
+list2env(proposed_list,.GlobalEnv)
+
+# removing "proposed" sheets from general list and reordering dataframes by chronological order
+uc_list1 <- uc_list1[-c(50:55)]
+uc_list1 <- list.reverse(uc_list1)
+names(uc_list1)
+list2env(uc_list1,.GlobalEnv)
+
+```
